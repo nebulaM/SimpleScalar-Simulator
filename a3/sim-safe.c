@@ -295,7 +295,7 @@ sim_uninit(void)
 //#define twoBitPredictNoHist xyz
 //#define oneBitPredictWithOneBitHist xyz
 //#define twoBitPredictWithFourBitHist xyz
-#define twoBitPredictWithFiveBitHist xyz
+#define GSharePredict xyz
 /* start simulation, program loaded, processor precise state initialized */
 void
 sim_main(void)
@@ -315,7 +315,7 @@ sim_main(void)
   unsigned int bpred_pht1[32768];
   unsigned int oneBitHist=0;
   unsigned int fourBitHist=0;
-  unsigned int fiveBitHist=0;
+  unsigned int branchHist=0;
 
   while (TRUE)
     {
@@ -486,30 +486,18 @@ sim_main(void)
 	}
 #endif
 
-#ifdef twoBitPredictWithFiveBitHist
+#ifdef GSharePredict
 	if( MD_OP_FLAGS(op) & F_COND ) {
 		g_total_cond_branches++;
-		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
+		unsigned index = ((regs.regs_PC >> 3) & ((1<<15)-1))^(branchHist& ((1<<15)-1));
 		assert( index < 32768 );
-		unsigned int prediction ;
-		if(fiveBitHist<15){
-			prediction = (bpred_pht[ index ]>>(fiveBitHist<<1))&0x03;
-			//remove old prediction
-			bpred_pht[ index ]-=(prediction<<(fiveBitHist<<1));
-		}
-		else{
-			int shift=fiveBitHist-15;
-			prediction = (bpred_pht1[ index ]>>(fiveBitHist))&0x03;
-			bpred_pht1[ index ]-=(prediction<<(shift<<1));
-		}
+		//index AND 11 to get currentState
+		unsigned int prediction=(bpred_pht[ index ]&0x03);
 		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
-		
+		//state 00,01: not taken, state 10,11 :taken
 		if( ((prediction>>1)&0x01) != actual_outcome ){
 			g_total_mispredictions++;
 		} 
-		assert(actual_outcome>=0);
-		assert(actual_outcome<=1);
-		//update prediction
 		if(actual_outcome==0){
 			if(prediction>0){
 				prediction--;
@@ -522,27 +510,10 @@ sim_main(void)
 		}
 		assert(prediction>=0);
 		assert(prediction<=3);
-		//insert the new prediction to corresponding table
-		if(fiveBitHist<15){		
-			bpred_pht[ index ]+= (prediction<<(fiveBitHist<<1));
-		}
-		else{
-			bpred_pht1[ index ]+= (prediction<<((fiveBitHist-15)<<1));
-		}
+		bpred_pht[ index ] = prediction; 
 		//update history
-		if(actual_outcome==0){
-			if(fiveBitHist>0){
-				
-				fiveBitHist--;
-			}
-		}
-		else{
-			if(fiveBitHist<31){
-				fiveBitHist++;
-			}
-		}
-		assert(fiveBitHist>=0);
-		assert(fiveBitHist<=31);
+		branchHist=branchHist<<1;
+		branchHist+=actual_outcome;
 	}
 #endif
       /* go to the next instruction */
