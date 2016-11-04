@@ -290,6 +290,12 @@ sim_uninit(void)
 #define DFCC            (2+32+32)
 #define DTMP            (3+32+32)
 
+
+//#define oneBitPredictNoHist xyz
+//#define twoBitPredictNoHist xyz
+//#define oneBitPredictWithOneBitHist xyz
+//#define twoBitPredictWithFourBitHist xyz
+#define twoBitPredictWithFiveBitHist xyz
 /* start simulation, program loaded, processor precise state initialized */
 void
 sim_main(void)
@@ -305,7 +311,11 @@ sim_main(void)
   /* set up initial default next PC */
   regs.regs_NPC = regs.regs_PC + sizeof(md_inst_t);
 
-  int bpred_pht[32768];
+  unsigned int bpred_pht[32768];
+  unsigned int bpred_pht1[32768];
+  unsigned int oneBitHist=0;
+  unsigned int fourBitHist=0;
+  unsigned int fiveBitHist=0;
 
   while (TRUE)
     {
@@ -368,18 +378,173 @@ sim_main(void)
 	  if (MD_OP_FLAGS(op) & F_STORE)
 	    is_write = TRUE;
 	}
+#ifdef oneBitPredictNoHist
 	if( MD_OP_FLAGS(op) & F_COND ) {
 		g_total_cond_branches++;
 		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
 		assert( index < 32768 );
-		int prediction = bpred_pht[ index ];
-		int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
+		unsigned int prediction = bpred_pht[ index ];
+		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
 		if( (prediction&0x01) != actual_outcome ){
 			g_total_mispredictions++;
 		} 
 		bpred_pht[ index ] = actual_outcome;
+ 
 	}
+#endif
+#ifdef twoBitPredictNoHist
+	//use the last 2 digit for state
+	if( MD_OP_FLAGS(op) & F_COND ) {
+		g_total_cond_branches++;
+		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
+		assert( index < 32768 );
+		//index AND 11 to get currentState
+		unsigned int prediction=(bpred_pht[ index ]&0x03);
+		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
+		//state 00,01: not taken, state 10,11 :taken
+		if( ((prediction>>1)&0x01) != actual_outcome ){
+			g_total_mispredictions++;
+		} 
+		if(actual_outcome==0){
+			if(prediction>0){
+				prediction--;
+			}
+		}
+		else{
+			if(prediction<3){
+				prediction++;
+			}
+		}
+		assert(prediction>=0);
+		assert(prediction<=3);
+		bpred_pht[ index ] = prediction; 
+	}
+#endif
+#ifdef oneBitPredictWithOneBitHist
+	//last digit is table for not taken, second last digit is table for taken
+	if( MD_OP_FLAGS(op) & F_COND ) {
+		g_total_cond_branches++;
+		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
+		assert( index < 32768 );
+		unsigned int prediction = (bpred_pht[ index ]>>oneBitHist);
+		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
+		if( (prediction&0x01) != actual_outcome ){
+			g_total_mispredictions++;
+		} 
+		bpred_pht[ index ] = (actual_outcome<<oneBitHist);
+		assert(actual_outcome>=0);
+		assert(actual_outcome<=1);
+		assert(oneBitHist>=0);
+		assert(oneBitHist<=1);
+		//update history
+		oneBitHist=actual_outcome;
+	}
+#endif
+#ifdef twoBitPredictWithFourBitHist
+	if( MD_OP_FLAGS(op) & F_COND ) {
+		g_total_cond_branches++;
+		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
+		assert( index < 32768 );
+		unsigned int prediction = (bpred_pht[ index ]>>(fourBitHist<<1))&0x03;
+		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
+		//remove old prediction
+		bpred_pht[ index ]-=(prediction<<(fourBitHist<<1));
+		if( ((prediction>>1)&0x01) != actual_outcome ){
+			g_total_mispredictions++;
+		} 
+		assert(actual_outcome>=0);
+		assert(actual_outcome<=1);
+		//update prediction
+		if(actual_outcome==0){
+			if(prediction>0){
+				prediction--;
+			}
+		}
+		else{
+			if(prediction<3){
+				prediction++;
+			}
+		}
+		assert(prediction>=0);
+		assert(prediction<=3);
+		//insert the new prediction to corresponding table
+		bpred_pht[ index ]+= (prediction<<(fourBitHist<<1));
+		//update history
+		if(actual_outcome==0){
+			if(fourBitHist>0){
+				
+				fourBitHist--;
+			}
+		}
+		else{
+			if(fourBitHist<15){
+				fourBitHist++;
+			}
+		}
+		assert(fourBitHist>=0);
+		assert(fourBitHist<=15);
+	}
+#endif
 
+#ifdef twoBitPredictWithFiveBitHist
+	if( MD_OP_FLAGS(op) & F_COND ) {
+		g_total_cond_branches++;
+		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
+		assert( index < 32768 );
+		unsigned int prediction ;
+		if(fiveBitHist<15){
+			prediction = (bpred_pht[ index ]>>(fiveBitHist<<1))&0x03;
+			//remove old prediction
+			bpred_pht[ index ]-=(prediction<<(fiveBitHist<<1));
+		}
+		else{
+			int shift=fiveBitHist-15;
+			prediction = (bpred_pht1[ index ]>>(fiveBitHist))&0x03;
+			bpred_pht1[ index ]-=(prediction<<(shift<<1));
+		}
+		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
+		
+		if( ((prediction>>1)&0x01) != actual_outcome ){
+			g_total_mispredictions++;
+		} 
+		assert(actual_outcome>=0);
+		assert(actual_outcome<=1);
+		//update prediction
+		if(actual_outcome==0){
+			if(prediction>0){
+				prediction--;
+			}
+		}
+		else{
+			if(prediction<3){
+				prediction++;
+			}
+		}
+		assert(prediction>=0);
+		assert(prediction<=3);
+		//insert the new prediction to corresponding table
+		if(fiveBitHist<15){		
+			bpred_pht[ index ]+= (prediction<<(fiveBitHist<<1));
+		}
+		else{
+			bpred_pht1[ index ]+= (prediction<<((fiveBitHist-15)<<1));
+		}
+		//update history
+		if(actual_outcome==0){
+			if(fiveBitHist>0){
+				
+				fiveBitHist--;
+			}
+		}
+		else{
+			if(fiveBitHist<31){
+				fiveBitHist++;
+			}
+		}
+		assert(fiveBitHist>=0);
+		assert(fiveBitHist<=31);
+	}
+#endif
       /* go to the next instruction */
       regs.regs_PC = regs.regs_NPC;
       regs.regs_NPC += sizeof(md_inst_t);
