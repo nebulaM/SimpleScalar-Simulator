@@ -294,9 +294,14 @@ sim_uninit(void)
 //#define oneBitPredictNoHist xyz
 //#define twoBitPredictNoHist xyz
 //#define oneBitPredictWithOneBitHist xyz
-//#define twoBitPredictWithFourBitHist xyz
-#define GSharePredict xyz
+#define twoBitPredictWithFourBitHist xyz
+//#define GSharePredict xyz
 /* start simulation, program loaded, processor precise state initialized */
+#define totalIndex 262144
+  unsigned int bpred_pht[totalIndex];
+  unsigned int oneBitHist=0;
+  unsigned int fourBitHist=0;
+  unsigned int branchHist=0;
 void
 sim_main(void)
 {
@@ -311,11 +316,7 @@ sim_main(void)
   /* set up initial default next PC */
   regs.regs_NPC = regs.regs_PC + sizeof(md_inst_t);
 
-  unsigned int bpred_pht[32768];
-  unsigned int bpred_pht1[32768];
-  unsigned int oneBitHist=0;
-  unsigned int fourBitHist=0;
-  unsigned int branchHist=0;
+
 
   while (TRUE)
     {
@@ -381,8 +382,8 @@ sim_main(void)
 #ifdef oneBitPredictNoHist
 	if( MD_OP_FLAGS(op) & F_COND ) {
 		g_total_cond_branches++;
-		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
-		assert( index < 32768 );
+		unsigned index = (regs.regs_PC >> 3) & ((1<<18)-1);
+		assert( index < totalIndex );
 		unsigned int prediction = bpred_pht[ index ];
 		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
 		if( (prediction&0x01) != actual_outcome ){
@@ -396,8 +397,8 @@ sim_main(void)
 	//use the last 2 digit for state
 	if( MD_OP_FLAGS(op) & F_COND ) {
 		g_total_cond_branches++;
-		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
-		assert( index < 32768 );
+		unsigned index = (regs.regs_PC >> 3) & ((1<<17)-1);
+		assert( index < totalIndex>>1 );
 		//index AND 11 to get currentState
 		unsigned int prediction=(bpred_pht[ index ]&0x03);
 		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
@@ -424,14 +425,15 @@ sim_main(void)
 	//last digit is table for not taken, second last digit is table for taken
 	if( MD_OP_FLAGS(op) & F_COND ) {
 		g_total_cond_branches++;
-		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
-		assert( index < 32768 );
+		unsigned index = (regs.regs_PC >> 3) & ((1<<17)-1);
+		assert( index < totalIndex>>1 );
 		unsigned int prediction = (bpred_pht[ index ]>>oneBitHist);
+		bpred_pht[ index ]-=(prediction&0x01)<<oneBitHist;
 		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
 		if( (prediction&0x01) != actual_outcome ){
 			g_total_mispredictions++;
 		} 
-		bpred_pht[ index ] = (actual_outcome<<oneBitHist);
+		bpred_pht[ index ]+= (actual_outcome<<oneBitHist);
 		assert(actual_outcome>=0);
 		assert(actual_outcome<=1);
 		assert(oneBitHist>=0);
@@ -443,8 +445,8 @@ sim_main(void)
 #ifdef twoBitPredictWithFourBitHist
 	if( MD_OP_FLAGS(op) & F_COND ) {
 		g_total_cond_branches++;
-		unsigned index = (regs.regs_PC >> 3) & ((1<<15)-1);
-		assert( index < 32768 );
+		unsigned index = (regs.regs_PC >> 3) & ((1<<13)-1);
+		assert( index < 1<<13 );
 		unsigned int prediction = (bpred_pht[ index ]>>(fourBitHist<<1))&0x03;
 		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
 		//remove old prediction
@@ -470,17 +472,7 @@ sim_main(void)
 		//insert the new prediction to corresponding table
 		bpred_pht[ index ]+= (prediction<<(fourBitHist<<1));
 		//update history
-		if(actual_outcome==0){
-			if(fourBitHist>0){
-				
-				fourBitHist--;
-			}
-		}
-		else{
-			if(fourBitHist<15){
-				fourBitHist++;
-			}
-		}
+		fourBitHist=((fourBitHist<<1)+actual_outcome)&0x0f;
 		assert(fourBitHist>=0);
 		assert(fourBitHist<=15);
 	}
@@ -489,8 +481,8 @@ sim_main(void)
 #ifdef GSharePredict
 	if( MD_OP_FLAGS(op) & F_COND ) {
 		g_total_cond_branches++;
-		unsigned index = ((regs.regs_PC >> 3) & ((1<<15)-1))^(branchHist& ((1<<15)-1));
-		assert( index < 32768 );
+		unsigned index = ((regs.regs_PC >> 3) & ((1<<17)-1))^(branchHist& ((1<<17)-1));
+		assert( index < totalIndex>>1 );
 		//index AND 11 to get currentState
 		unsigned int prediction=(bpred_pht[ index ]&0x03);
 		unsigned int actual_outcome=(regs.regs_NPC!=(regs.regs_PC+sizeof(md_inst_t))); 
