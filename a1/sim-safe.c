@@ -102,10 +102,6 @@ static int total_reg_bit_changed_count=0;
 static counter_t g_total_bit_changed;
 static counter_t g_total_bit_changed_insn;
 
-
-static int xor_bit_changed=0;
-
-
 /* simulated memory */
 static struct mem_t *mem = NULL;
 
@@ -517,13 +513,9 @@ sim_main(void)
 	/*q3*/
 	
 	if(dst_reg<REG_NUM_MAX && dst_reg>0){
-	
-xor_bit_changed=0;
 		bit_check=BIT_MAX-1;//31
 		reg_old=regs_old[dst_reg];
 		reg_new=regs.regs_R[dst_reg];
-
-		xor_bit_changed=reg_new^reg_old;
 		if(reg_old!=reg_new){
 			while(bit_check>=0){//check by shift 0-31
 				if(((reg_old>>bit_check) & 0x01)!=((reg_new>>bit_check) &0x01)){
