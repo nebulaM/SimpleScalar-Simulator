@@ -74,9 +74,22 @@
  
 //Available parameter for CACHE: 0(direct_map)	1(4_way_set_assoc)
 #define CACHE	1
+//comment out next line if do not need prefetch
+//#define CACHE_PREFETCH 1
 
+//comment out next line if do not need data cache simulation
+#define DATA_CACHE 1
+
+#ifdef CACHE
 static counter_t g_icache_miss;
- 
+#endif
+#ifdef DATA_CACHE
+static counter_t g_dcache_ld_miss;
+static counter_t g_dcache_st_miss;  
+static counter_t g_ld_count;
+static counter_t g_st_count;
+static counter_t g_wb_count;
+#endif
 /* simulated registers */
 static struct regs_t regs;
 
@@ -127,6 +140,37 @@ sim_reg_stats(struct stat_sdb_t *sdb)
   "instruction cache miss rate (percentage)",
   "100*(sim_num_icache_miss / sim_num_insn)", NULL);
 #endif
+#ifdef DATA_CACHE
+  stat_reg_counter(sdb, "sim_num_dcache_ld_miss",
+  "total number of load misses",
+  &g_dcache_ld_miss, 0, NULL);
+  
+  stat_reg_counter(sdb, "sim_num_ld",
+  "total number of load",
+  &g_ld_count, 0, NULL);
+  
+  stat_reg_formula(sdb, "sim_dcache_ld_miss_rate",
+  "load data cache miss rate (percentage)",
+  "100*(sim_num_dcache_ld_miss / sim_num_ld)", NULL);
+  
+   stat_reg_counter(sdb, "sim_num_dcache_st_miss",
+  "total number of store misses",
+  &g_dcache_st_miss, 0, NULL);
+  
+  stat_reg_counter(sdb, "sim_num_st",
+  "total number of store",
+  &g_st_count, 0, NULL);
+  
+  stat_reg_formula(sdb, "sim_dcache_st_miss_rate",
+  "store data cache miss rate (percentage)",
+  "100*(sim_num_dcache_st_miss / sim_num_st)", NULL);
+  
+  stat_reg_counter(sdb, "sim_num_wb",
+  "total number of data cache writeback",
+  &g_wb_count, 0, NULL);
+  
+#endif
+
   stat_reg_counter(sdb, "sim_num_insn",
 		   "total number of instructions executed",
 		   &sim_num_insn, sim_num_insn, NULL);
@@ -287,14 +331,15 @@ sim_uninit(void)
 #define DFCC            (2+32+32)
 #define DTMP            (3+32+32)
 
-
-
-#ifdef CACHE
+#if defined(CACHE) || defined(DATA_CACHE)
 struct block {
  int m_valid; // is block valid?
  md_addr_t m_tag; // tag used to determine whether we have a cache hit
-#if CACHE==1
+#if (defined(CACHE) && CACHE==1) || defined(DATA_CACHE)
  counter_t m_timestamp;
+#endif
+#ifdef DATA_CACHE
+ int dirty;
 #endif
 };
 struct cache {
@@ -303,11 +348,14 @@ struct cache {
  unsigned m_set_shift;
  unsigned m_set_mask;
  unsigned m_tag_shift;
-#if CACHE==1
+#if (defined(CACHE) && CACHE==1) || defined(DATA_CACHE)
  unsigned m_nways;
 #endif 
 };
-void cache_access( struct cache *c, unsigned addr, counter_t *miss_counter )
+#endif
+
+#if defined(CACHE)
+void insn_cache_access( struct cache *c, unsigned addr, counter_t *miss_counter)
 {
  unsigned index, tag;
  index = (addr>>c->m_set_shift)&c->m_set_mask;
@@ -319,7 +367,7 @@ void cache_access( struct cache *c, unsigned addr, counter_t *miss_counter )
  c->m_tag_array[index].m_valid = 1;
  c->m_tag_array[index].m_tag = tag;
  }
-#elif CACHE==1
+#else
  assert( index < c->m_total_blocks / c->m_nways );
  unsigned i,leastRecentIndex=index;
  //by default write data to first block in a set
@@ -339,15 +387,76 @@ void cache_access( struct cache *c, unsigned addr, counter_t *miss_counter )
 		leastRecent=c->m_tag_array[index+(index+1)*i].m_timestamp;
 	}	
  }
+ //not found insn from icache
  if(found==0){
 	*miss_counter = *miss_counter + 1;
 	c->m_tag_array[leastRecentIndex].m_valid = 1;
 	c->m_tag_array[leastRecentIndex].m_tag = tag;
 	c->m_tag_array[leastRecentIndex].m_timestamp=sim_num_insn;
+#ifdef CACHE_PREFETCH
+	//32 byte block
+	unsigned blockSize=32;
+	index = ((addr+blockSize)>>c->m_set_shift)&c->m_set_mask;
+	tag = ((addr+blockSize)>>c->m_tag_shift);
+	c->m_tag_array[index].m_valid = 1;
+	c->m_tag_array[index].m_tag = tag;
+	c->m_tag_array[index].m_timestamp=sim_num_insn;
+#endif
  }
 #endif
 }
 #endif
+
+#ifdef DATA_CACHE
+void data_cache_access( struct cache *c, unsigned addr, counter_t *miss_counter, int st )
+{
+ unsigned index, tag;
+ index = (addr>>c->m_set_shift)&c->m_set_mask;
+ tag = (addr>>c->m_tag_shift);
+ assert( index < c->m_total_blocks / c->m_nways );
+ unsigned i,leastRecentIndex=index;
+ //by default write data to first block in a set
+ counter_t leastRecent=c->m_tag_array[index].m_timestamp;
+ int found=0;
+ unsigned thisIndex;
+ for(i=0;i<c->m_nways;++i){
+	thisIndex=index+(c->m_total_blocks / c->m_nways)*i;
+	if((c->m_tag_array[thisIndex].m_valid&&(c->m_tag_array[thisIndex].m_tag==tag))) {
+		found=1;
+		//update time stamp to this insn
+		c->m_tag_array[thisIndex].m_timestamp=sim_num_insn;
+		if(st==1){
+			c->m_tag_array[thisIndex].dirty=1;
+		}
+		break;
+	}
+	if(leastRecent > c->m_tag_array[thisIndex].m_timestamp){
+		leastRecentIndex=thisIndex;
+		leastRecent=c->m_tag_array[index+(index+1)*i].m_timestamp;
+	}	
+ }
+ //not found data from dcache
+ if(found==0){
+	*miss_counter = *miss_counter + 1;
+	c->m_tag_array[leastRecentIndex].m_valid = 1;
+	c->m_tag_array[leastRecentIndex].m_tag = tag;
+	c->m_tag_array[leastRecentIndex].m_timestamp=sim_num_insn;
+	//need to store
+	if(st==1){
+		//if LRU block already has dirty data, writeback old data
+		if(c->m_tag_array[leastRecentIndex].dirty==1){
+			g_wb_count++;
+		}
+		else{
+			c->m_tag_array[leastRecentIndex].dirty=1;	
+		}
+	}
+ }
+}
+#endif
+
+
+
 /* start simulation, program loaded, processor precise state initialized */
 void
 sim_main(void)
@@ -376,8 +485,21 @@ sim_main(void)
   icache->m_tag_shift = 13;	
   icache->m_nways=4;
 #endif
-
 #endif
+
+#ifdef DATA_CACHE
+  struct cache *dcache = (struct cache *) calloc( sizeof(struct cache), 1 );
+  //16KB cap w/ 64B block, 256 blocks in total
+  dcache->m_tag_array = (struct block *) calloc( sizeof(struct block), 256 );
+  dcache->m_total_blocks = 256;
+  //log2(64B block)=6 bits
+  dcache->m_set_shift = 6;
+  //index needs log2(16K/(64B block*8way))=5 bits
+  dcache->m_set_mask = (1<<5)-1;
+  dcache->m_tag_shift = 11;	
+  dcache->m_nways=8;
+#endif	
+
   fprintf(stderr, "sim: ** starting functional simulation **\n");
 
   /* set up initial default next PC */
@@ -446,7 +568,17 @@ sim_main(void)
 	    is_write = TRUE;
 	}
 #ifdef CACHE
-	cache_access(icache, regs.regs_PC, &g_icache_miss);
+	insn_cache_access(icache, regs.regs_PC, &g_icache_miss);
+#endif
+#ifdef DATA_CACHE
+	if(MD_OP_FLAGS(op)&F_LOAD){
+		g_ld_count++;
+		data_cache_access(dcache, regs.regs_PC, &g_dcache_ld_miss, 0);
+	}
+	if(MD_OP_FLAGS(op)&F_STORE){
+		g_st_count++;
+		data_cache_access(dcache, regs.regs_PC, &g_dcache_st_miss, 1);
+	}
 #endif
       /* go to the next instruction */
       regs.regs_PC = regs.regs_NPC;
