@@ -1,6 +1,6 @@
-# CPEN411
-Computer Architecture
-Modification of SimpleScalar simulator
+# Computer Architecture Class
+
+Modified SimpleScalar simulator
 
 ###Usage
 
