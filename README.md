@@ -1,4 +1,4 @@
-# Computer Architecture Class
+# Computer Architecture
 
 Modified SimpleScalar simulator
 
