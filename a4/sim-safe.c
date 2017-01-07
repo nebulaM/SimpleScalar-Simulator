@@ -384,7 +384,7 @@ void insn_cache_access( struct cache *c, unsigned addr, counter_t *miss_counter)
 	}
 	if(leastRecent > c->m_tag_array[thisIndex].m_timestamp){
 		leastRecentIndex=thisIndex;
-		leastRecent=c->m_tag_array[index+(index+1)*i].m_timestamp;
+		leastRecent=c->m_tag_array[thisIndex].m_timestamp;
 	}	
  }
  //not found insn from icache
@@ -432,7 +432,7 @@ void data_cache_access( struct cache *c, unsigned addr, counter_t *miss_counter,
 	}
 	if(leastRecent > c->m_tag_array[thisIndex].m_timestamp){
 		leastRecentIndex=thisIndex;
-		leastRecent=c->m_tag_array[index+(index+1)*i].m_timestamp;
+		leastRecent=c->m_tag_array[thisIndex].m_timestamp;
 	}	
  }
  //not found data from dcache
