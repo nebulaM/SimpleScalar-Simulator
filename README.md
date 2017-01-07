@@ -4,9 +4,9 @@ Modified SimpleScalar simulator
 
 ###Usage
 
-1.Download simulator file from [Piazza](https://piazza.com/ubc.ca/winterterm12016/cpen411/resources), put it in a directory on linux virtual machine.
+1.untar benchmarks.tgz and simcpen411.tgz in a directory of a Linux OS(Bash on Windows 10 not works, it gives compile error).
 
-2.In virtual machine, add your user to vboxsf group by
+2.If you run this on an Linux virtual machine and want to edit the files under windows, then add your user to vboxsf group by
 
 ```shell
 sudo gpasswd -a <username> vboxsf
