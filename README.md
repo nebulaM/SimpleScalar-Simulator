@@ -2,7 +2,7 @@
 
 Modified SimpleScalar simulator
 
-###Usage
+Usage
 
 1.untar benchmarks.tgz and simcpen411.tgz in a directory of a Linux OS(Bash on Windows 10 not works, it gives compile error).
 
