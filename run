@@ -1,9 +1,13 @@
 #!/bin/bash
-ROOT=/home//Documents/CPEN411
+#specify your simulator directory here
+ROOT=/home
+make_sure_we_have="#!/bin/bash"
+filename="readme"
 benchdirname="sim-cpen411-$1"
-echo "$benchdirname"
+
 #tell the system where to find your benchmark folders
 benchdir=$ROOT/$benchdirname
+echo "benchmark directory is $benchdir"
 
 if [ $benchdirname = "sim-cpen411-a2" ]; then
 benchname="sim-scalar-cpen411"
@@ -13,7 +17,7 @@ fi
 
 cd $benchdir
 make
-cd ..
+
 declare -a bench
 bench[0]="fpppp"
 bench[1]="gcc"
@@ -22,9 +26,20 @@ bench[3]="vpr"
 for name in ${bench[@]}; do
 
 cd ./$name
-#add "#!/bin/bash" at the beginning of each of your "readme" file in benchmark folders
-bash readme $benchdir $benchname
-echo "done the analysis for $name"
+this=`pwd`
+if grep -Fxq $make_sure_we_have $filename
+then
+    # code if found
+	echo "$make_sure_we_have already presents in $benchdir/$filename, do not modify $this/$filename"
+else
+    # code if not found
+	echo "adding $make_sure_we_have at the beginning of $filename file in directory $this"
+	sed '1d' $filename > tmp; mv tmp $filename
+	echo $make_sure_we_have | cat - $filename > tmp && mv tmp $filename
+fi
+
+bash $filename $benchdir $benchname
+echo "done analysis for $name"
 cd ..
 
 done
